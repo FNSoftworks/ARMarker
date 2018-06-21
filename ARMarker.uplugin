@@ -1,0 +1,29 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "ARMarker",
+	"Description": "Free Utilities With UE4",
+	"Category": "Augmented Reality",
+	"CreatedBy": "FNSoftworks",
+	"CreatedByURL": "http://www.farunurisonmez.com/",
+	"DocsURL": "http://www.farunurisonmez.com/ARMarker/Document/",
+	"MarketplaceURL": "",
+	"SupportURL": "http://www.farunurisonmez.com/ARMarker/",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "ARMarker",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"WhitelistPlatforms": [
+				"Android",
+				"Win64",
+				"Mac",
+				"IOS"
+			]
+		}
+	]
+}

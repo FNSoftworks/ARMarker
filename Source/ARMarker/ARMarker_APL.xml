@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--ARToolKit plugin additions-->
+<root xmlns:android="http://schemas.android.com/apk/res/android">
+	<!-- init section is always evaluated once per architecture -->
+	<init>
+		<log text="AndroidCamera init"/>
+	</init>
+	
+	<androidManifestUpdates>
+		<addPermission android:name="android.permission.INTERACT_ACROSS_USERS_FULL"/>
+		<addPermission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+		<addPermission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+		<addPermission android:name="android.permission.CAMERA" />
+		<addPermission android:name="android.permission.FLASHLIGHT"/>
+		<addFeature android:name="android.hardware.camera" />
+		<addFeature android:name="android.hardware.camera.autofocus" android:required="false"/>
+		<addFeature android:name="android.hardware.camera.flash" android:required="false"/>
+	</androidManifestUpdates>
+
+	<!-- optional additions to the GameActivity imports in GameActivity.java -->
+	<gameActivityImportAdditions>
+		<insert>
+			import android.hardware.Camera;
+			import android.hardware.Camera.CameraInfo;
+			import android.hardware.Camera.Parameters;
+			import android.hardware.Camera.PreviewCallback;
+			import android.graphics.SurfaceTexture;
+			import android.graphics.ImageFormat;
+			import android.graphics.PixelFormat;
+			import java.util.List; 
+			import java.io.IOException;
+			import java.nio.ByteBuffer;
+			import java.nio.ByteOrder;
+			import java.nio.FloatBuffer;
+			import android.content.pm.PackageManager;
+			import android.content.pm.PackageInfo;
+			import android.os.storage.StorageManager;
+			import android.os.Environment;
+			import android.os.storage.OnObbStateChangeListener;
+			import java.io.FileInputStream;
+			import java.io.FileOutputStream;
+			import java.util.zip.ZipInputStream;
+			import java.util.zip.ZipEntry;
+			import java.io.BufferedInputStream;
+			import java.io.InputStream;
+		</insert>
+	</gameActivityImportAdditions>
+	
+	<gameActivityClassAdditions>
+		<insert>
+
+      Camera camera;
+      Parameters cameraParam;
+      SurfaceTexture surfaceTexture;
+
+      public native boolean nativeCameraFrameArrived(int FrameWidth, int FrameHeight, byte[] data);
+
+      public void AndroidThunkJava_CamStart()
+      {
+      surfaceTexture = new SurfaceTexture(10);
+      surfaceTexture.setDefaultBufferSize(320,240);
+      camera = Camera.open();
+
+
+      try {
+      camera.setPreviewTexture(surfaceTexture);
+      } catch (IOException t) {
+      android.util.Log.e("TextureView", "Cannot set preview texture target!", t);
+      }
+
+      cameraParam = camera.getParameters();
+
+
+      for (Camera.Size size :cameraParam.getSupportedPreviewSizes()) {
+       Log.debug(size.width+"x"+size.height+"\n");
+      }
+
+      cameraParam.setPreviewFormat(ImageFormat.NV21);
+      cameraParam.setPreviewSize(320,240);
+
+      //Torch
+      //cameraParam.setFlashMode(Parameters.FLASH_MODE_TORCH);
+
+      //Autofocus
+      List&lt;String&gt; focusModes = cameraParam.getSupportedFocusModes();
+		  if (focusModes.contains(Parameters.FOCUS_MODE_CONTINUOUS_VIDEO))
+			cameraParam.setFocusMode(Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
+
+        camera.setParameters(cameraParam);
+
+        camera.setPreviewCallback(new PreviewCallback() {
+            @Override
+            public void onPreviewFrame(byte[] data, Camera camera) {
+                int frameHeight = camera.getParameters().getPreviewSize().height;
+                int frameWidth = camera.getParameters().getPreviewSize().width;
+                //Log.debug("==============> OnPreviewFrame");
+                nativeCameraFrameArrived(frameWidth, frameHeight, data);
+            }
+         });
+        //Log.debug("==============> StartPreview");
+        camera.startPreview();
+      }
+
+      public void AndroidThunkJava_CamStop()
+      {
+        if (camera != null)
+        {
+            camera.stopPreview();
+            camera.release();
+            camera = null;
+        }
+      }
+
+      public void AndroidThunkJava_UnpackData()
+      {
+          Log.debug(" ###############  UNPACKING DATA  ############ ");
+          String obbPath = Environment.getExternalStorageDirectory() + "/obb/";
+
+            String ProjectName = getPackageName();
+			  ProjectName = ProjectName.substring(ProjectName.lastIndexOf('.') + 1);
+			  try {
+				  ApplicationInfo ai = getPackageManager().getApplicationInfo(getPackageName(), PackageManager.GET_META_DATA);
+				  Bundle bundle = ai.metaData;
+
+				  // Get the project name from AndroidManifest.xml
+				  if (bundle.containsKey("com.epicgames.ue4.GameActivity.ProjectName"))
+				  {
+					  ProjectName = bundle.getString("com.epicgames.ue4.GameActivity.ProjectName");
+					  Log.debug( "Found ProjectName = " + ProjectName);
+				  }
+				  else
+				  {
+					  Log.debug( "Did not find ProjectName, using package name = " + ProjectName);
+				  }
+			  }
+			  catch (NameNotFoundException e)
+			  {
+				  Log.debug( "Failed to load meta-data: NameNotFound: " + e.getMessage());
+			  }
+			  catch (NullPointerException e)
+			  {
+				  Log.debug( "Failed to load meta-data: NullPointer: " + e.getMessage());
+			  }
+		  
+		  
+          String gamePath = Environment.getExternalStorageDirectory() + "/UE4Game/"+ProjectName+"/";
+
+          int Version=1;
+
+          try
+          {
+              Version = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
+          }
+              catch (Exception e)
+          {
+            // if the above failed, then, we can't use obbs
+            Log.debug("==================================> PackageInfo failure getting .obb info: " + e.getMessage());
+          }
+
+          String obbName = "main."+Version+"."+getApplicationContext().getPackageName()+".obb";
+          final String obbFilePath = obbPath + getApplicationContext().getPackageName()+"/"+obbName ;
+
+          Log.debug(" ###############  OBB file Path:  ############ "  + obbFilePath);
+
+          //Unzip OBB data
+          String path = obbPath + getApplicationContext().getPackageName();
+          String pathDest = gamePath;
+          String zipname = obbName;
+
+          InputStream is;
+          ZipInputStream zis;
+          
+          try
+          {
+            String filename;
+            is = new FileInputStream(path +"/"+ zipname);
+            zis = new ZipInputStream(new BufferedInputStream(is));
+            ZipEntry ze;
+            byte[] buffer = new byte[1024];
+            int count;
+
+            while ((ze = zis.getNextEntry()) != null)
+            {
+      
+              filename = ze.getName();
+
+              //extract only artoolkit related stuff
+              if (filename.toLowerCase().contains("armarker")){
+                // Need to create directories if not exists, or
+                // it will generate an Exception...
+              if (ze.isDirectory()) {
+                File fmd = new File(pathDest + filename);
+                Log.debug(" ###############  DIRECTORY ############ "  + pathDest + filename);
+                fmd.mkdirs();
+                zis.closeEntry();
+                continue;
+              }
+
+              FileOutputStream fout = new FileOutputStream(pathDest + filename);
+              Log.debug(" ###############  COPY FILE ############ "  + pathDest + filename);
+              // cteni zipu a zapis
+              while ((count = zis.read(buffer)) != -1)
+              {
+                  fout.write(buffer, 0, count);
+              }
+
+          fout.close();
+          zis.closeEntry();
+          }
+        }
+
+        zis.close();
+      }
+      catch(IOException e)
+      {
+        Log.debug(" ###############  ZIP ERROR  ############ "  + e);
+        //e.printStackTrace();
+        return;
+      }
+
+        return;
+      }
+    </insert>
+	</gameActivityClassAdditions>
+
+	<!-- optional additions to GameActivity onCreate in GameActivity.java -->
+	<gameActivityOnCreateAdditions>
+		<insert>
+		</insert>
+	</gameActivityOnCreateAdditions>
+</root>
